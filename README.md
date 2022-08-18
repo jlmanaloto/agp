@@ -1,5 +1,7 @@
 # agp
+
 Algolia GCP Pulumi Stack
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ## Requirements
@@ -101,19 +103,15 @@ Set the configuration values using ``./agp set namespace-environment:key=value``
 
 To set a configuration for environent ``my-env`` in ``dev`` namespace with key ``appId`` and value ``my-id``:
 
-    ```
     $ ./agp set dev-my-env:admin_app_id=my-id
-    ```
 
 The command above yields to a configuration of:
 
-    ```
     {
       "dev-my-env": {
         "appId": "my-id"
       }
     }
-    ```
 
 | Key | Description |
 |-----|-------------|
@@ -132,11 +130,9 @@ those resources will be skipped during deployment. One option is to recreate the
 the resources in ``config.yaml`` and let AGP skip the existing resources. If you opt to use the latter, you will see some
 (low verbosity) errors. You can safely ignore them. Just be sure to look out for AGP logs:
 
-    ```
     INFO: root ...
     ERROR: root ...
     WARNING: root ...
-    ```
 
 ## Known Issues
 
