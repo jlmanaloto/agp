@@ -180,36 +180,27 @@ def create_or_update_gcp_secret(username: str, secrets: dict) -> None:
         )
 
 
-def get_config_from_yaml_file(config_file: str) -> dict:
+def get_config_from_file(config_file: str, file_type: str)-> dict:
     """Read configuration values from a YAML config file.
 
     Parameters:
         config_file: Path to the config file.
+        file_type: Type of configuration file.
 
     Returns:
         cfg: A dictionary of configuration values.
     """
+
     with open(config_file) as cf:
         try:
-            cfg = yaml.safe_load(cf)
-            return cfg
-        except yaml.YAMLError as e:
-            logging.error(f" An error occured:\n    {e}")
-            exit(1)
+            if file_type == "json":
+                cfg = json.load(cf)
+            elif file_type == "yaml":
+                cfg = yaml.safe_load(cf)
+            else:
+                # fallback to json
+                cfg = get_config_from_file(config_file, "json")
 
-
-def get_config_from_json_file(config_file: str) -> dict:
-    """Read configuration values from a JSON config file.
-
-    Parameter:
-        config_file: Path to the config file.
-
-    Returns:
-        cfg: A dictionary of configuration values.
-    """
-    with open(config_file) as cf:
-        try:
-            cfg = json.load(cf)
             return cfg
         except Exception as e:
             logging.error(f" An exception occured while reading file {config_file}.\n   {e}")
@@ -322,6 +313,9 @@ def create_or_update_cfg_files(update_dictionary: dict) -> None:
 
     Parameters:
         update_dictionary: Dictionary containing all update values.
+
+    Returns:
+        None
     """
 
     # unpack
@@ -365,7 +359,7 @@ LOCATION={env_location}
 
         if not skip_update_firebase_config:
             print("not skipping firebase update")
-            firebase_cfg = get_config_from_json_file(firebase_config_file)
+            firebase_cfg = get_config_from_file(firebase_config_file, "json")
 
             firebase_extensions = firebase_cfg.get("extensions")
 
@@ -389,7 +383,7 @@ def get_agp_admin_config(config_file: str, env: str) -> (str, str, str):
         gcp_project: Google Project Name.
     """
     try:
-        cfg = get_config_from_json_file(config_file)
+        cfg = get_config_from_file(config_file, "json")
 
         admin_api_key = cfg[env]["apiKey"]
         admin_app_id = cfg[env]["appId"]
@@ -427,7 +421,63 @@ def skip_file_update(resp, verb):
     return skip
 
 
+def file_exists(filepath) -> bool:
+    filename = Path(filepath)
+
+    return filename.is_file()
+
+
+def init_agp() -> None:
+    agp_dir = Path(AGP_DIR)
+    agp_dir.mkdir(parents=True, exist_ok=True)
+    agp_secrets = Path(AGP_SECRETS)
+
+    if file_exists(AGP_SECRETS):
+        logging.info(f" File {agp_secrets} already exists!")
+    else:
+        empty_data = {}
+        data = json.dumps(empty_data, indent=2)
+        write_to_file(AGP_SECRETS, data)
+    exit(0)
+
+
+def set_agp_config(env_resources: str) -> None:
+    if file_exists(AGP_SECRETS):
+        # write
+        # format: `namespace-environment:key=value`
+        #    dev-lester:apiKey=my-api-key
+        environment_name = env_resources.split(":")[0]
+        kv_list = env_resources.split(":")[1].split(",")
+
+
+        cfg = get_config_from_file(AGP_SECRETS, "json")
+        try:
+            workspace = cfg[environment_name]
+        except KeyError:
+            cfg[environment_name] = {}
+            workspace = cfg[environment_name]
+
+        for kv in kv_list:
+            key = kv.split("=")[0]
+            val = kv.split("=")[1]
+
+            workspace[key] = val
+
+        data = json.dumps(cfg, indent=2)
+        write_to_file(AGP_SECRETS, data)
+        exit(0)
+
+    else:
+        logging.error(" AGP secrets file does not exist! Run `agp.py init` first before setting config values!")
+        exit(1)
+
+
 def run(args):
+    if args.verb == "init":
+        init_agp()
+    elif args.verb == "set":
+        set_agp_config(args.environment)
+
     byte_config = get_gcloud_config()
     config = json.loads(byte_config)
     account = config["config"]["account"]
@@ -435,7 +485,7 @@ def run(args):
 
     algolia_admin_config_file = args.agp_secrets
 
-    cfg = get_config_from_yaml_file(args.config_file)
+    cfg = get_config_from_file(args.config_file, "yaml")
 
     (
         algolia_api_key_name,
@@ -581,7 +631,7 @@ if __name__ == "__main__":
         "verb",
         action="store",
         default=None,
-        choices=["preview", "rm", "rm-stack", "up"],
+        choices=["init", "preview", "rm", "rm-stack", "set", "up"],
         help="Execute an operation to environment resources"
     )
     parser.add_argument(
@@ -643,16 +693,6 @@ if __name__ == "__main__":
         help=f"Path to 'firebase.json' config file. Defaults to {FIREBASE_CONFIG_FILE}",
     )
 
-#    print(os.environ["GRPC_ENABLE_FORK_SUPPORT"])
-#    print(os.environ["GRPC_POLL_STRATEGY"])
-
-    os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "true"
-    os.environ["GRPC_POLL_STRATEGY"] = "poll"
-
-    print(os.environ["GRPC_ENABLE_FORK_SUPPORT"])
-    print(os.environ["GRPC_POLL_STRATEGY"])
-
     args = parser.parse_args()
     run(args)
 
-    #logging.info(f" env: {args.environment} and verb: {args.verb} and text: {args.collection} and config: {args.config_file}")
