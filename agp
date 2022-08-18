@@ -24,7 +24,7 @@ AGP_SECRETS = os.path.join(AGP_DIR, "secrets")
 EXTENSIONS_DIR = os.path.join(SCRIPT_DIR, "..", "..", "extensions")
 FIREBASE_CONFIG_FILE = os.path.join(SCRIPT_DIR, "..", "..", "firebase.json")
 
-#logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 
 
 def get_gcloud_config():
@@ -153,13 +153,9 @@ def create_or_update_gcp_secret(username: str, secrets: dict) -> None:
     Returns:
         None
     """
-    print("@ create or update secret")
-    print(f"secrets: {secrets}")
     for k in secrets:
         secret_data = secrets[k]
         name = k.removeprefix("algolia-api-key-")
-
-        print(f"secret is {secret_data} and name is {name}")
 
         secret = sm.Secret(
             f"secret-{name}", # pulumi unique resource name
@@ -171,7 +167,6 @@ def create_or_update_gcp_secret(username: str, secrets: dict) -> None:
             },
             secret_id=f"lester-test-algolia-secret-{name}",
         )
-
 
         sm.SecretVersion(
             f"secret-version-{name}", # Automatically updates secret version
@@ -229,10 +224,7 @@ def execute_pulumi_verb(stack, verb: str, stack_name: str):
             resp = stack.workspace.remove_stack(stack_name)
     elif verb == "up":
         logging.info(f" Updating stack: {stack_name}")
-        with contextlib.redirect_stdout(open(os.devnull, 'w')):
-            print("github!!!!")
-            resp = stack.up(parallel=1)
-        print("github v2 !!!!")
+        resp = stack.up(log_verbosity=0)
     else:
         logging.error(f" Unknown verb {verb}! Valid operations are: [preview, rm, rm-stack, up].")
         exit(1)
@@ -324,24 +316,20 @@ def create_or_update_cfg_files(update_dictionary: dict) -> None:
     environment = update_dictionary.get("environment")
     environment_config = update_dictionary.get("environment_config")
     algolia_indexes = update_dictionary.get("algolia_indexes")
+    algolia_indexes_global = update_dictionary.get("algolia_indexes_global")
     firebase_search_extension = update_dictionary.get("firebase_search_extension")
     algolia_api_key_name = update_dictionary.get("algolia_api_key_name")
-    admmin_app_id = update_dictionary.get("admin_app_id")
+    admin_app_id = update_dictionary.get("admin_app_id")
     force_data_sync = update_dictionary.get("force_data_sync")
     location = update_dictionary.get("location")
     extensions_dir = update_dictionary.get("extensions_dir")
     firebase_config_file = update_dictionary.get("firebase_config_file")
 
-    print("Here at create or update cfg files")
-    print(f"skip ext: {skip_update_extensions} and skip firebase: {skip_update_firebase_config}")
 
     for index in algolia_indexes:
         extension_file_name = "search-" + index.replace(".", "-") + ".env." + environment
 
-        print(f"for loop {extension_file_name}")
-
         if not skip_update_extensions:
-            print("not skipping extension update")
             env_algolia_api_key_name = environment_config.get("algoliaApiKeyName", algolia_api_key_name)
             env_algolia_app_id = environment_config.get("algoliaAppId", admin_app_id)
             env_force_data_sync = environment_config.get("forceDataSync", force_data_sync)
@@ -357,16 +345,15 @@ LOCATION={env_location}
             extension_file_path = os.path.join(extensions_dir, extension_file_name)
             write_to_file(extension_file_path, data)
 
+    firebase_cfg = get_config_from_file(firebase_config_file, "json")
+    firebase_extensions = firebase_cfg.get("extensions")
+    firebase_extensions.clear()
+
+    for index in algolia_indexes_global:
+        extension = "search-" + index.replace(".", "-")
+
         if not skip_update_firebase_config:
-            print("not skipping firebase update")
-            firebase_cfg = get_config_from_file(firebase_config_file, "json")
-
-            firebase_extensions = firebase_cfg.get("extensions")
-
-            extension = extension_file_name.split(".env")[0]
-
             firebase_extensions[extension] = firebase_search_extension
-
             write_to_file(firebase_config_file, json.dumps(firebase_cfg, indent=2))
 
 
@@ -411,12 +398,13 @@ def skip_file_update(resp, verb):
         try:
             resource_changes = resp.summary.resource_changes
             del resource_changes["same"]
-            if len(resource_changes) == 0:
-                skip = True
-            else:
-                skip = False
         except:
             pass
+
+        if len(resource_changes) == 0:
+            skip = True
+        else:
+            skip = False
 
     return skip
 
@@ -428,6 +416,7 @@ def file_exists(filepath) -> bool:
 
 
 def init_agp() -> None:
+    logging.info(" Creating AGP directory..")
     agp_dir = Path(AGP_DIR)
     agp_dir.mkdir(parents=True, exist_ok=True)
     agp_secrets = Path(AGP_SECRETS)
@@ -435,6 +424,7 @@ def init_agp() -> None:
     if file_exists(AGP_SECRETS):
         logging.info(f" File {agp_secrets} already exists!")
     else:
+        logging.info(" Creating AGP secrets config file..")
         empty_data = {}
         data = json.dumps(empty_data, indent=2)
         write_to_file(AGP_SECRETS, data)
@@ -500,6 +490,10 @@ def run(args):
     environments = get_environments_to_deploy(args.environment)
     if len(environments) == 0:
         environments = [ e for e in envs ]
+    if skip_update_extensions:
+        logging.info(" Flag '--skip-update-extensions' is set. Skipping updates for extensions env files.")
+    if skip_update_firebase_config:
+        logging.info(" Flag '--skip-update-firebase-config' is set. Skipping updates for firebase config file.")
 
     for env in environments:
         env_conf = envs.get(env)
@@ -538,13 +532,14 @@ def run(args):
             skip_update_firebase_config = True
 
         if deploy_indexes:
-            print("deploy indexes!")
             stack_name_indexes = project_name + "-indexes"
             algolia_indexes = algolia_indexes_gen + env_conf.get("algoliaIndexes", [])
             try:
                 def pulumi_program_indexes():
                     return create_or_update_algolia_indexes(algolia_indexes)
 
+
+                logging.info(f"Deploying resources for stack {stack_name_indexes}")
 
                 stack_indexes = auto.create_or_select_stack(
                     stack_name=stack_name_indexes,
@@ -556,12 +551,13 @@ def run(args):
                 stack_indexes.set_config("algolia:applicationId", auto.ConfigValue(value=admin_app_id))
 
                 resp = execute_pulumi_verb(stack_indexes, args.verb, stack_name_indexes)
-                skip_update_extensions = skip_file_update(resp, args.verb)
+                if not skip_update_extensions:
+                    skip_update_extensions = skip_file_update(resp, args.verb)
             except:
+                logging.error(f"  Exception: {e}")
                 skip_update_extensions = True
 
         if deploy_api_keys:
-            print("deploy api keys!")
             stack_name_api_keys = project_name + "-api-keys"
             stack_name_secrets = project_name + "-secrets"
             algolia_api_keys = algolia_api_keys_gen + env_conf.get("algoliaApiKeys", [])
@@ -569,6 +565,7 @@ def run(args):
                 def pulumi_program_api_keys():
                     return create_or_update_algolia_api_keys(algolia_api_keys)
 
+                logging.info(f"Deploying resources for stack {stack_name_api_keys}")
 
                 stack_api_keys = auto.create_or_select_stack(
                     stack_name=stack_name_api_keys,
@@ -580,14 +577,19 @@ def run(args):
                 stack_api_keys.set_config("algolia:applicationId", auto.ConfigValue(value=admin_app_id))
 
                 resp = execute_pulumi_verb(stack_api_keys, args.verb, stack_name_api_keys)
-                skip_update_firebase_config = skip_file_update(resp, args.verb)
+                if not skip_update_firebase_config:
+                    skip_update_firebase_config = skip_file_update(resp, args.verb)
 
-                secrets = get_secret_values(project_name, stack_name_api_keys)
-                print(f"secrets: {secrets}")
+                if args.verb == "rm" or args.verb == "rm-stack":
+                    secrets = {}
+                else:
+                    secrets = get_secret_values(project_name, stack_name_api_keys)
 
                 def pulumi_program_secrets():
                     return create_or_update_gcp_secret(username, secrets)
 
+
+                logging.info(f"Deploying resources for stack {stack_name_secrets}")
 
                 stack_gcp_secrets = auto.create_or_select_stack(
                     stack_name=stack_name_secrets,
@@ -612,6 +614,7 @@ def run(args):
             environment=env,
             environment_config=env_conf,
             algolia_indexes=algolia_indexes,
+            algolia_indexes_global=algolia_indexes_gen,
             firebase_search_extension=firebase_search_extension,
             algolia_api_key_name=algolia_api_key_name,
             admin_app_id=admin_app_id,
@@ -640,13 +643,6 @@ if __name__ == "__main__":
         default="all",
         nargs="?",
         help="Environments to deploy. Use ',' when deploying multiple environments. Deploys all environments by default.",
-    )
-    parser.add_argument(
-        "collection",
-        action="store",
-        default="all",
-        nargs="?",
-        help="Collections to deploy. Multiple collections should be separated by ','. Defaults to 'all': deploy all collections.",
     )
     parser.add_argument(
         "--config-file",

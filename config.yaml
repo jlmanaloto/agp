@@ -6,22 +6,18 @@ global:
     lester:
       namespace: dev
       prefix: swarm-work
-      algoliaIndexes:
-        - profiles
-        - projects
     aaron:
       namespace: dev
       prefix: swarm-work
-      algoliaIndexes:
-        - swarms
-        - skills
 
-algoliaIndexes: []
+algoliaIndexes:
+  - profiles
+  - projects
 
 algoliaApiKeys:
-  - name: skills
+  - name: profiles
     acls: ["search"]
     indexes: ["profiles"]
     description: "API key for profiles"
-  - name: swarms
+  - name: projects
     acls: []

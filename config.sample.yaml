@@ -1,0 +1,75 @@
+global:
+  # Global configuration
+  # Required:
+  algoliaApiKeyName: "firestore-algolia-search-extension-write-api-key"
+
+  # Optional:
+  forceDataSync: "no" # defaults to 'no'
+  location: "us-west2" # defaults to 'us-west2'
+
+  # Environments
+  # Note that different environments have their own Pulumi project.
+  # Set the environment name as `environments.${environment_name}`
+  # When creating an environment or setting a config value for AGP
+  #  keep in mind that the `environments.${env}.namespace` must match
+  #  the environment name in `~/.agp/secrets`.
+  #  For example:
+  #    (1) environments:
+  #          my-env:
+  #            namespace: dev
+  #            prefix: swarm-work
+  #
+  #    (2) $ ./agp set dev-my-env:apiKey=my-api-key
+  environments:
+    lester:
+      # Required:
+      namespace: dev # Environment namespace
+      prefix: swarm-work # Prefix used in creating a Pulumi project.
+
+      # Optional:
+      # Scope within the environment. This is useful for development projects
+      #  where you don't want to deploy the resources to other environments.
+      #   algoliaApiKeyName: ""
+      #   algoliaAppId: "" # Algolia application ID.
+      #   forceDataSync: ""
+      #   location: ""
+      #
+      #   # .global.environments.${env}.algoliaIndexes and 
+      #   # .algoliaIndexes will be merged together during deployment.
+      #   # Other environments will not be affected when setting this.
+      #   algoliaIndexes:
+      #     - index1
+      #     - index2
+      #
+      #   # .global.environments.${env}.agloliaApiKeys and
+      #   # .algoliaApiKeys will be merged together during deployment.
+      #   algoliaApiKeys:
+      #     - api-key-1
+      #     - api-key-2
+    my-env:
+      namespace: dev
+      prefix: swarm-work
+
+
+# List of Algolia Indexes
+# algoliaIndexes:
+#   - profiles
+#   - projects
+algoliaIndexes: []
+
+algoliaApiKeys: []
+# algoliaApiKeys:
+#     # Required:
+#   - name: key1
+#     acls: ["search"]
+#
+#     # Optional
+#     indexes: ["profiles"] # defaults to []
+#     description: "" # defaults to "API key for ${name}"
+#     maxApiCall: 15000 # defaults to 15000
+#     maxHitsPerQuery: 0 # defaults to 0
+#     referers: [] # defaults to []
+#     validity: 0 # defaults to 0
+#
+#   - name: key2
+#     acls: []
