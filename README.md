@@ -94,6 +94,18 @@ When destroying resources and stacks, AGP will **never** remove the created ``.e
 and ``firebase.json``'s ``.extensions`` list. This is to have a fallback option when you accidentally removed the resources 
 of an environment. If you want to remove an extension, you have to do it manually.
 
+### Environment Variables
+
+When running ``agp``, you can set some values using environment variables.
+
+| Environment Variable | Description |
+|----------------------|-------------|
+| AGP_SECRETS | Sets the path to AGP secrets conf file |
+| AGP_EXTENSIONS_DIR | Sets the path to the extensions directory |
+| AGP_FIREBASE_CONFIG_FILE | Sets the path to the ``firebase.json`` config file |
+
+For more options, run ``./agp -h``.
+
 ## Configuration
 
 ### AGP Configuration file
