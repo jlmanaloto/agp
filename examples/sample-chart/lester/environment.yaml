@@ -1,0 +1,14 @@
+kind: Environment
+name: lester
+spec:
+  environment:
+    updateExtensions: true 
+    updateCollections: false
+  gcp:
+    project: my-project
+  pulumi:
+    namespace: dev
+    stack: beta
+  algolia:
+    apiKeyName: test-api-key
+    appId: my-app-id

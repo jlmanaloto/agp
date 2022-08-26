@@ -1,0 +1,7 @@
+kind: AlgoliaIndex
+name: my-test-index
+environment: aaron
+spec:
+  apiKey:
+    description: My API Key
+    acls: []

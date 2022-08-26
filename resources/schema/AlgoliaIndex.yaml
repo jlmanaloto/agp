@@ -1,0 +1,92 @@
+kind: AlgoliaIndex
+name:
+  type: string
+  required: true
+collectionPrefix:
+  type: string
+  required: false
+  autoCreate: true
+  default: search
+environment:
+  type: string
+  required: false
+  autoCreate: true
+  default: default
+metadata:
+  type: object
+  required: false
+  autoCreate: true
+  object:
+    collection:
+      type: string
+      required: false
+      autoCreate: true
+      default: "{{ .name }}"
+    searchExtension:
+      type: string
+      required: false
+      autoCreate: true
+      default: "algolia/firestore-algolia-search@0.5.13"
+spec:
+  type: object
+  required: true
+  object:
+    secretNamePrefix:
+      type: string
+      required: false
+      autoCreate: true
+      default: algolia-api-key
+    searchableAttributes:
+      type: object_list
+      required: false
+      autoCreate: true
+      default: []
+      object:
+        name:
+          type: string
+          required: true
+        ordered:
+          type: boolean
+          required: false
+          autoCreate: true
+          default: true
+    apiKey:
+      type: object
+      required: false
+      autoCreate: false
+      object:
+        description:
+          type: string
+          required: false
+          autoCreate: true
+          default: API Key for {{ .name }}
+        acls:
+          type: object_list
+          required: false
+          autoCreate: true
+          default: [] 
+        indexes:
+          type: object_list
+          required: false
+          autoCreate: true
+          default: []
+        maxApiCall:
+          type: integer
+          required: false
+          autoCreate: true
+          default: 15000
+        maxHitsPerQuery:
+          type: integer
+          required: false
+          autoCreate: true
+          default: 0
+        referers:
+          type: object_list
+          required: false
+          autoCreate: true
+          default: []
+        validity:
+          type: integer
+          required: false
+          autoCreate: true
+          default: 0

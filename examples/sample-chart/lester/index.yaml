@@ -1,0 +1,15 @@
+kind: AlgoliaIndex
+name: index1
+environment: lester
+spec:
+  secretNamePrefix: test-algolia-api-key-lester
+  apiKey:
+    acls: []
+---
+kind: AlgoliaIndex
+name: index2
+environment: lester
+spec:
+  secretNamePrefix: test-algolia-api-key-lester
+  apiKey:
+    acls: []

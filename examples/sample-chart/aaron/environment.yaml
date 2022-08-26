@@ -1,0 +1,5 @@
+kind: Environment
+name: aaron
+spec:
+  pulumi:
+    stack: alpha 

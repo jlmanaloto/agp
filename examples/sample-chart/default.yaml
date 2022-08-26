@@ -1,0 +1,9 @@
+kind: DefaultMetadata
+spec:
+  gcp:
+    project: org-project
+  pulumi:
+    stack: giga
+  algolia:
+    apiKeyName: firebase-algolia-key-sample
+    appId: my-app-id

@@ -1,0 +1,979 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import logging
+import os
+from pathlib import Path
+import shutil
+import subprocess
+
+import yaml
+
+import pulumi
+from pulumi import automation as auto
+from sw_pulumi_algolia import ApiKey, Index
+from pulumi_gcp import secretmanager as sm
+
+
+SCRIPT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__)))
+CWD = os.getcwd()
+HOME_DIR = str(Path.home())
+AGP_DIR = os.path.join(HOME_DIR, ".agp")
+AGP_SECRETS_DEFAULT = os.path.join(AGP_DIR, "secrets")
+AGP_SECRETS = os.environ.get("AGP_SECRETS", AGP_SECRETS_DEFAULT)
+AGP_SCHEMA_DIR = os.path.join(AGP_DIR, "schema")
+AGP_SCHEMAS = [ f.replace(".yaml", "") for f in os.listdir(AGP_SCHEMA_DIR) if f.endswith(".yaml") ]
+EXTENSIONS_DIR_DEFAULT = os.path.join(CWD, "extensions")
+EXTENSIONS_DIR = os.environ.get("AGP_EXTENSIONS_DIR", EXTENSIONS_DIR_DEFAULT)
+FIREBASE_CONFIG_FILE_DEFAULT = os.path.join(CWD, "firebase.json")
+FIREBASE_CONFIG_FILE = os.environ.get("AGP_FIREBASE_CONFIG_FILE", FIREBASE_CONFIG_FILE_DEFAULT)
+
+logging.basicConfig(level=logging.INFO)
+
+type_mapping = dict(
+    boolean="bool",
+    string="str",
+    object="dict",
+    object_list="list",
+    integer="int",
+)
+
+
+class MissingEnvironmentValuesError(Exception):
+    pass
+
+
+class InvalidKeyTypeError(Exception):
+    pass
+
+
+class InvalidChartError(Exception):
+    pass
+
+
+def get_gcloud_config():
+    """Fetch Google Cloud Config."""
+    gcloud_config = subprocess.run(
+        [
+            "gcloud",
+            "info",
+            "--format",
+            "json",
+        ],
+        stdout=subprocess.PIPE,
+        check=True,
+    )
+    config = gcloud_config.stdout.decode('utf-8')
+    return config
+
+
+def create_or_update_algolia_indexes(idxs: list[dict], project_name: str, stack_name: str) -> None:
+    """Create or update index resource of Algolia.
+
+    Parameter:
+        idxs: List of index dictionaries.
+        project_name: Unique name for the project.
+        stack_name: Unique name for the stack.
+
+    Returns:
+        None
+    """
+    for idx in idxs:
+        name = idx["name"]
+        attributes = idx["attributes"]
+        attrs = []
+        for attr in attributes:
+            attribute = attr["name"]
+            if not bool(attr["ordered"]):
+                attribute = f"unordered({attribute})"
+            attrs.append(attribute)
+
+        Index(
+            f"{project_name}-{stack_name}-algolia-index-{name}",
+            name=name,
+            searchable_attributes=attrs,
+        )
+
+
+def create_or_update_algolia_api_keys(api_keys: list[any], project_name: str, stack_name: str) -> None:
+    """Create or update api key resource of Algolia.
+
+    Parameter:
+        api_keys: List of API keys.
+        project_name: Unique name for the project.
+        stack_name: Unique name for the stack.
+
+    Returns:
+        None
+    """
+    for api_key in api_keys:
+        name = api_key.get("name")
+        name_prefix = api_key["spec"]["secretNamePrefix"]
+        api_key_spec = api_key.get("spec")
+        spec = api_key_spec.get("apiKey")
+
+        if spec:
+            acls = spec.get("acls")
+            indexes = spec.get("indexes")
+            description = spec.get("description").replace("{{ .name }}", name)
+            max_api_call = int(spec.get("maxApiCall"))
+            max_hits_per_query = int(spec.get("maxHitsPerQuery"))
+            referers = spec.get("referers")
+            validity = int(spec.get("validity"))
+
+            key = ApiKey(
+                f"{project_name}-{stack_name}-algolia-api-key-{name}",
+                acls=acls,
+                description=description,
+                indexes=indexes,
+                max_hits_per_query=max_hits_per_query,
+                max_queries_per_ip_per_hour=max_api_call,
+                referers=referers,
+                validity=validity,
+            )
+            pulumi.export(f"{name_prefix}-{name}", key.key)
+
+
+def create_pulumi_file(project_name) -> None:
+    """Create a temporary Pulumi.yaml file for executing pulumi cli.
+
+    Parameter:
+        project_name: Pulumi project name.
+
+    Returns:
+        None
+    """
+
+    data = f"""name: {project_name}
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: A minimal Python Pulumi Program
+"""
+
+    pulumi_file = os.path.join(CWD, "Pulumi.yaml")
+    write_to_file(pulumi_file, data)
+
+
+def get_secret_values(project_name:str, stack_name: str) -> dict:
+    """Fetch the secret value exported to stack output.
+
+    Parameters:
+        project_name: Unique name for the project.
+        stack_name: Unique name for the stack.
+
+    Returns:
+        Decrypted stack output secret.
+    """
+    output = {}
+    try:
+        create_pulumi_file(project_name)
+        subprocess.run(
+            [
+                "pulumi",
+                "stack",
+                "select",
+                stack_name,
+            ],
+            check=True,
+        )
+        out = subprocess.run(
+            [
+                "pulumi",
+                "stack",
+                "output",
+                "-j",
+                "--show-secrets",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+        )
+        output = json.loads(out.stdout.decode("utf-8"))
+    except Exception as e:
+        logging.error(f" An exception occured:\n{e}")
+    finally:
+        pulumi_file = os.path.join(CWD, "Pulumi.yaml")
+        Path(pulumi_file).unlink(missing_ok=True)
+
+
+    return output
+
+
+def create_or_update_gcp_secret(username: str, secrets: dict, project_name: str, stack_name: str) -> None:
+    """Create or update GCP Secret resource.
+
+    Parameters:
+        username: Google account username for labels.
+        secrets: A dictionary containing secret key and values. 
+        project_name: Unique name for the project.
+        stack_name: Unique name for the stack.
+
+    Returns:
+        None
+    """
+    for k in secrets:
+        secret_data = secrets[k]
+
+        secret = sm.Secret(
+            f"{project_name}-{stack_name}-secret-{k}", # pulumi unique resource name
+            labels={
+                "created-by": username,
+            },
+            replication={
+                "automatic": "true",
+            },
+            secret_id=k,
+        )
+
+        sm.SecretVersion(
+            f"{project_name}-{stack_name}-secret-version-{k}", # secret version unique resource name
+            secret=secret.id,
+            secret_data=secret_data,
+        )
+
+
+def get_config_from_file(config_file: str, file_type: str):
+    """Read configuration values from a YAML config file.
+
+    Parameters:
+        config_file: Path to the config file.
+        file_type: Type of configuration file.
+    """
+
+    with open(config_file) as cf:
+        try:
+            if file_type == "json":
+                cfg = json.load(cf)
+            elif file_type == "yaml":
+                cfgs = yaml.safe_load_all(cf)
+                cfg = dict(configs=[])
+                for c in cfgs:
+                    cfg["configs"].append(c)
+            else:
+                # fallback to json
+                cfg = get_config_from_file(config_file, "json")
+
+            return cfg
+        except Exception as e:
+            logging.error(f" An exception occured while reading file {config_file}.\n   {e}")
+            exit(1)
+
+
+def execute_pulumi_verb(stack, verb: str, stack_name: str):
+    """Execute specified Pulumi operation.
+
+    Parameters:
+        stack: Pulumi stack object.
+        verb: Puluim operation.
+        stack_name: Unique name for the stack.
+
+    Returns:
+        resp: Pulumi operation response.
+    """
+    if verb == "preview":
+        resp = stack.preview()
+        logging.info(f" Preview:\n{resp.stdout}stderr: {resp.stderr}\nchange summary: {resp.change_summary}")
+        exit(0)
+    elif verb == "rm" or verb == "rm-stack":
+        logging.info(f" Removing resources of stack: {stack_name}")
+        resp = stack.destroy()
+        if verb == "rm-stack":
+            logging.info(f" Removing stack: {stack_name}")
+            resp = stack.workspace.remove_stack(stack_name)
+    elif verb == "up":
+        logging.info(f" Updating stack: {stack_name}")
+        resp = stack.up(log_verbosity=0)
+    else:
+        logging.error(f" Unknown verb {verb}! Valid operations are: [preview, rm, rm-stack, up].")
+        exit(1)
+
+    return resp
+
+
+def get_environments_to_deploy(env: str) -> list[str]:
+    """Fetch environments to deploy.
+
+    Parameter:
+        env: Environments fromm user input.
+
+    Returns:
+        environments: A list of environments to deploy.
+    """
+    environments = env.split(",")
+    try:
+        environments.remove("all")
+    except ValueError:
+        pass
+
+    return environments
+
+
+def write_to_file(filename: str, data: str) -> None:
+    """Writes data to file.
+
+    Parameters:
+        filename: Path to the file.
+        data: Data to write.
+
+    Returns:
+        None
+    """
+    try:
+        with open(filename, "w") as f:
+            f.write(data)
+    except Exception as e:
+        logging.error(f" Exception occured while writing to file {filename}.\n    {e}")
+
+
+def get_agp_admin_key(config_file: str, env: str) -> str:
+    """Fetch secret configuration values.
+
+    Parameters:
+        config_file: Configuration file path.
+        env: Environment name from the configuration file.
+
+    Returns:
+        admin_api_key: Algolia admin API Key.
+    """
+    try:
+        cfg = get_config_from_file(config_file, "json")
+
+        admin_api_key = cfg[env]["apiKey"]
+
+    except KeyError:
+        logging.warning(f" Environment {env} missing from config file {config_file}. Skipping.")
+        admin_api_key = ""
+
+    except Exception as e:
+        logging.error(f" An exception occured:\n    {e}")
+        exit(1)
+
+    return admin_api_key
+
+
+def skip_file_update(resp, verb):
+    """Checks whether to skip a file update or not."""
+    # Always make sure that by default, we skip file updates.
+    skip = True
+    resource_changes = {}
+    if verb == "up":
+        try:
+            resource_changes = resp.summary.resource_changes
+            del resource_changes["same"]
+        except:
+            pass
+
+        if len(resource_changes) == 0:
+            skip = True
+        else:
+            skip = False
+
+    return skip
+
+
+def file_exists(filepath) -> bool:
+    filename = Path(filepath)
+
+    return filename.is_file()
+
+
+def init_agp() -> None:
+    logging.info(" Creating AGP directory..")
+    agp_dir = Path(AGP_DIR)
+    agp_dir.mkdir(parents=True, exist_ok=True)
+    agp_secrets = Path(AGP_SECRETS)
+
+    try:
+
+        if file_exists(AGP_SECRETS):
+            logging.info(f" File {agp_secrets} already exists!")
+        else:
+            logging.info(" Creating AGP secrets config file..")
+            empty_data = {}
+            data = json.dumps(empty_data, indent=2)
+            write_to_file(AGP_SECRETS, data)
+
+        schema_dir = os.path.join(SCRIPT_DIR, "resources", "schema")
+        dest = os.path.join(AGP_DIR, "schema")
+        shutil.move(schema_dir, dest)
+
+        exit(0)
+    except Exception as e:
+        logging.error(f" An exception occured.\n\n{e}")
+
+
+def set_agp_config(env_resources: str) -> None:
+    if file_exists(AGP_SECRETS):
+        # write
+        # format: `namespace-environment:key=value`
+        #    dev-lester:apiKey=my-api-key
+        environment_name = env_resources.split(":")[0]
+        kv_list = env_resources.split(":")[1].split(",")
+
+
+        cfg = get_config_from_file(AGP_SECRETS, "json")
+        try:
+            workspace = cfg[environment_name]
+        except KeyError:
+            cfg[environment_name] = {}
+            workspace = cfg[environment_name]
+
+        for kv in kv_list:
+            key = kv.split("=")[0]
+            val = kv.split("=")[1]
+
+            workspace[key] = val
+
+        data = json.dumps(cfg, indent=2)
+        write_to_file(AGP_SECRETS, data)
+        exit(0)
+
+    else:
+        logging.error(
+            " AGP secrets file does not exist! " \
+            "Run `agp.py init` first before setting config values!"
+        )
+        exit(1)
+
+
+def get_chart_files(chart_dir) -> list[dict]:
+    """Get all chart files with AGP resources for deployment.
+
+    Parameters:
+        chart_dir: Directoy containing chart files in YAML format. Defaults to the current directory.
+
+    Returns:
+        charts_list: A list of charts containing its relative path.
+    """
+    charts_list = []
+    for (root, dirs, file) in os.walk(chart_dir):
+        for f in file:
+            if f and ".yaml" in f:
+                template_file = os.path.join(root, f)
+                charts_list.append(template_file)
+
+    return charts_list
+
+
+class Charts(object):
+    pass
+
+
+def set_chart_configurations(charts_object, charts_list) -> None:
+    """Sets the configuration values of each AGP resource kind
+
+    Parameters:
+        charts_object: An object of the class 'Chart'.
+        charts_list: A list of charts containing its relative path.
+    """
+    for schema in AGP_SCHEMAS:
+        tmp_val_list = []
+        for chart in charts_list:
+            chart_configs = get_config_from_file(chart, "yaml")
+            for cfg in chart_configs["configs"]:
+                try:
+                    if cfg.get("kind") == schema:
+                        tmp_val_list.append(cfg)
+                except KeyError:
+                    pass
+        setattr(charts_object, schema, tmp_val_list)
+
+
+def _check_validity(data, schema_template, config) -> None:
+    """Checks if a configuration conforms to the AGP schema."""
+    for key in data:
+        tmp_key_val = None
+        if key == "kind":
+            continue
+
+        try:
+            required_key = schema_template[key]["required"]
+            type_key = schema_template[key]["type"]
+            
+            tmp_key_val = config.get(key, None)
+            if required_key:
+                if not tmp_key_val:
+                    raise KeyError
+
+            if tmp_key_val is not None:
+                if type(config.get(key, None)).__name__ != type_mapping[type_key]:
+                    raise InvalidKeyTypeError
+
+            if (
+                type_key == "object"
+                and tmp_key_val is not None
+            ):
+                schema_data = data[key]["object"]
+                schema_template_schema_data = schema_template[key]["object"]
+                config_schema_data = config[key]
+                _check_validity(schema_data, schema_template_schema_data, config_schema_data)
+
+        except InvalidKeyTypeError:
+            logging.error(
+                f" Key {key} is expected to have a type of {type_mapping[type_key]}"
+            )
+            exit(1)
+
+        except InvalidChartError:
+            logging.error(f" Invalid chart template")
+            exit(1)
+
+        except KeyError:
+            logging.error(
+                f" Missing required key '{key}' in configuration:" \
+                "\n{json.dumps(config, indent=2)}"
+            )
+            exit(1)
+
+
+def _get_schema_template(schema) -> dict:
+    """Get the schema template of an AGP resource."""
+    schema_file = os.path.join(AGP_SCHEMA_DIR, f"{schema}.yaml")
+    schema_template = get_config_from_file(schema_file, "yaml")["configs"][0]
+
+    return schema_template
+
+
+def _check_config_validity(config, schema) -> None:
+    schema_template = _get_schema_template(schema)
+    _check_validity(schema_template, schema_template, config)
+
+
+def _is_default_or_environment_values_exist(charts_object) -> bool:
+    """Checks if DefaultMetadata and/or Environment resources exist."""
+    if (
+        len(getattr(charts_object, "DefaultMetadata")) == 0
+        and len(getattr(charts_object, "Environment")) == 0
+    ):
+        return False
+    else:
+        return True
+
+
+def _create_cfg_from_values(cfg, schema):
+    for k, v in cfg.items():
+        if k in schema.keys():
+            if isinstance(v, dict):
+                _create_cfg_from_values(v, schema[k]["object"])
+        else:
+            logging.error(f" Invalid key: {k}")
+
+
+def _update_cfg_from_schema(cfg, schema):
+    for k, v in schema.items():
+        try:
+            if isinstance(cfg[k], dict):
+                if cfg[k]:
+                    if isinstance(v, dict):
+                        _update_cfg_from_schema(cfg[k], v["object"])
+            if isinstance(cfg[k], list):
+                if v["type"] == "object_list":
+                    for c in cfg[k]:
+                        if isinstance(c, dict):
+                            _update_cfg_from_schema(c, v["object"])
+                        
+        except KeyError:
+            auto_create = v.get("autoCreate", None)
+            if auto_create:
+                if v["type"] == "object":
+                    cfg[k] = {}
+                    _update_cfg_from_schema(cfg[k], v["object"])
+                else:
+                    cfg[k] = v["default"]
+
+
+def _build_configuration(config, schema) -> None:
+    schema_template = _get_schema_template(schema)
+    _create_cfg_from_values(config, schema_template)
+    _update_cfg_from_schema(config, schema_template)
+
+
+def build_and_check_configurations(charts_object) -> None:
+    """Builds and checks a final configuration of an AGP resource."""
+    try:
+        if not _is_default_or_environment_values_exist(charts_object):
+            raise MissingEnvironmentValuesError
+
+        for schema in AGP_SCHEMAS:
+            configs = getattr(charts_object, schema)
+            for config in configs:
+                _check_config_validity(config, schema)
+                _build_configuration(config, schema)
+
+    except MissingEnvironmentValuesError:
+        logging.error(""" Both 'DefaultMetadata' and 'Environment' resources are missing!
+Make sure to deploy at least one of the two!""")
+        exit(1)
+    except Exception as e:
+        logging.error(f" An exception occured: \n{e}")
+        exit(1)
+
+
+def _merge_dict(default: dict, cfg: dict):
+    merged_config = {**default, **cfg}
+    for key, value in merged_config.items():
+        if isinstance(value, dict):
+            default_value = default.get(key)
+            if default_value:
+                merged_nested_config = _merge_dict(default_value, value)
+                merged_config[key] = merged_nested_config
+
+    return merged_config
+
+
+def merge_default_and_env_values(default_cfg, env_cfgs) -> list[dict]:
+    """Merge the values of DefaultMetadata and Environment resources."""
+    updated_env_configs = []
+    for cfg in env_cfgs:
+        merged_config = _merge_dict(default_cfg, cfg)
+        updated_env_configs.append(merged_config)
+
+    return updated_env_configs
+
+
+def _deploy_indexes(
+    env_name,
+    project_name,
+    stack_name,
+    index_configs,
+    app_id,
+    admin_api_key,
+    verb,
+):
+    """Deploy the index stack of a project."""
+    stack_name = stack_name + "-indexes"
+    algolia_indexes = [
+        dict(name=idx["name"], attributes=idx["spec"]["searchableAttributes"])
+        for idx in index_configs if idx["environment"] == "default"
+        or idx["environment"] == env_name
+    ]
+
+    def pulumi_program_indexes():
+        return create_or_update_algolia_indexes(
+            algolia_indexes,
+            project_name,
+            stack_name,
+        )
+
+    stack = auto.create_or_select_stack(
+        stack_name=stack_name,
+        project_name=project_name,
+        program=pulumi_program_indexes,
+    )
+
+    stack.set_config("algolia:apiKey", auto.ConfigValue(value=admin_api_key, secret=True))
+    stack.set_config("algolia:applicationId", auto.ConfigValue(value=app_id))
+    resp = execute_pulumi_verb(stack, verb, stack_name)
+    
+    return resp
+
+
+def _deploy_api_keys(
+    env_name,
+    project_name,
+    stack_name,
+    index_configs,
+    app_id,
+    admin_api_key,
+    verb,
+):
+    """Deploy the api keys stack of a project."""
+    stack_name = stack_name + "-api-keys"
+    configs = [
+        idx for idx in index_configs if idx["environment"] == "default"
+        or idx["environment"] == env_name
+    ]
+
+    def pulumi_program_api_keys():
+        return create_or_update_algolia_api_keys(configs, project_name, stack_name)
+
+    stack = auto.create_or_select_stack(
+        stack_name=stack_name,
+        project_name=project_name,
+        program=pulumi_program_api_keys,
+    )
+
+    stack.set_config("algolia:apiKey", auto.ConfigValue(value=admin_api_key, secret=True))
+    stack.set_config("algolia:applicationId", auto.ConfigValue(value=app_id))
+    resp = execute_pulumi_verb(stack, verb, stack_name)
+
+    return resp
+
+
+def _deploy_secrets(
+    env_name,
+    project_name,
+    stack_name,
+    gcp_project,
+    username,
+    secrets,
+    verb,
+):
+    """Deploy the secrets stack of a project."""
+    stack_name = stack_name + "-secrets"
+
+    def pulumi_program_secrets():
+        return create_or_update_gcp_secret(username, secrets, project_name, stack_name)
+
+    stack = auto.create_or_select_stack(
+        stack_name=stack_name,
+        project_name=project_name,
+        program=pulumi_program_secrets,
+    )
+
+    stack.set_config("gcp:project", auto.ConfigValue(value=gcp_project))
+    resp = execute_pulumi_verb(stack, verb, stack_name)
+
+    return resp
+
+
+def deploy_stacks(env_config, index_configs, agp_secrets, verb, username) -> (bool, bool):
+    """Deploy the resources of a project."""
+    env_name = env_config["name"]
+    spec = env_config.get("spec")
+
+    gcp_spec = spec.get("gcp")
+    pulumi_spec = spec.get("pulumi")
+    algolia_spec = spec.get("algolia")
+    env_spec = spec.get("environment")
+
+    gcp_project = gcp_spec.get("project")
+
+    prefix = pulumi_spec.get("prefix")
+    namespace = pulumi_spec.get("namespace")
+    stack_name = pulumi_spec.get("stack")
+    if prefix:
+        prefix = prefix + "-"
+    if namespace:
+        namespace = namespace + "-"
+
+    app_id = algolia_spec.get("appId")
+
+    update_extensions = bool(env_spec.get("updateExtensions"))
+    update_collections = bool(env_spec.get("updateCollections"))
+
+    admin_api_key = get_agp_admin_key(agp_secrets, f"{namespace}{env_name}")
+
+    if admin_api_key == "":
+        logging.error(f" Missing Admin API Key for environment {env_name}!")
+        exit(1)
+
+    project_name = prefix + namespace + env_name
+
+    logging.info(
+        f" Switching to environment '{env_name}' on namespace '{namespace.replace('-', '')}'"
+    )
+
+    resp = _deploy_indexes(
+        env_name,
+        project_name,
+        stack_name,
+        index_configs,
+        app_id,
+        admin_api_key,
+        verb,
+    )
+
+    if update_extensions:
+        update_extensions = not skip_file_update(resp, verb)
+
+    resp = _deploy_api_keys(
+        env_name,
+        project_name,
+        stack_name,
+        index_configs,
+        app_id,
+        admin_api_key,
+        verb,
+    )
+
+    if update_collections:
+        update_collections = not skip_file_update(resp, verb)
+
+    if verb == "rm" or verb =="rm-stack":
+        secrets = {}
+    else:
+        secrets = get_secret_values(project_name, stack_name + "-api-keys")
+
+    resp = _deploy_secrets(
+        env_name,
+        project_name,
+        stack_name,
+        gcp_project,
+        username,
+        secrets,
+        verb,
+    )
+
+    return (update_extensions, update_collections)
+
+
+def update_config_files(
+    env_config: dict,
+    index_configs: list[dict],
+    update_extensions: bool,
+    update_collections: bool,
+    extensions_dir: str,
+    firebase_config: str,
+) -> None:
+    """Update extensions env files and firebase config file."""
+
+    env_name = env_config.get("name")
+    spec = env_config.get("spec")
+    env_spec = spec.get("environment")
+    gcp_spec = spec.get("gcp")
+    algolia_spec = spec.get("algolia")
+
+    if update_collections:
+        firebase_cfg = get_config_from_file(firebase_config, "json")
+        firebase_extensions = firebase_cfg.get("extensions")
+        firebase_extensions.clear()
+
+    cfgs = [
+        config for config in index_configs
+        if config["environment"] == "default"
+        or config["environment"] == env_name
+    ]
+
+    for cfg in cfgs:
+        index_name = cfg.get("name")
+        index_metadata = cfg.get("metadata")
+        firebase_search_extension = index_metadata.get("searchExtension")
+        collection_path = index_metadata.get("collection")
+        if collection_path == "{{ .name }}":
+            collection_path = index_name
+
+        file_name_prefix = cfg.get("collectionPrefix") + "-"
+        extension_file_name = file_name_prefix + index_name.replace(".", "-") + ".env." + env_name
+
+        if update_extensions:
+            logging.info(f" Updating extensions {extensions_dir}/{extension_file_name}")
+            api_key_name = algolia_spec.get("apiKeyName")
+            app_id = algolia_spec.get("appId")
+            force_data_sync = gcp_spec.get("forceDataSync")
+            region = gcp_spec.get("region")
+
+            force_data_sync = "yes" if force_data_sync else "no"
+
+            data = f"""ALGOLIA_API_KEY=projects/${{param:PROJECT_NUMBER}}/secrets/{apiKeyName}/versions/latest
+ALGOLIA_APP_ID={app_id}
+ALGOLIA_INDEX_NAME={index_name}
+COLLECTION_PATH={collection_path}
+FORCE_DATA_SYNC={force_data_sync}
+LOCATION={region}"""
+
+            extension_file_path = os.path.join(extensions_dir, extension_file_name)
+            write_to_file(extension_file_path, data)
+
+        if update_collections:
+            logging.info(f" Updating {firebase_config}")
+            extension = extension_file_name.split(".env.")[0]
+            firebase_extensions[extension] = firebase_search_extension
+            write_to_file(firebase_config_file, json.dumps(firebase_cfg, indent=2))
+
+
+def run(args):
+    if args.verb == "init":
+        init_agp()
+    elif args.verb == "set":
+        set_agp_config(args.environment)
+
+    byte_config = get_gcloud_config()
+    config = json.loads(byte_config)
+    account = config["config"]["account"]
+    username = account.split("@")[0]
+
+    agp_secrets = args.agp_secrets
+
+    charts_list = get_chart_files(args.chart_dir)
+
+    charts_object = Charts()
+    set_chart_configurations(charts_object, charts_list)
+
+    environments = get_environments_to_deploy(args.environment)
+    if len(environments) == 0:
+        envs = getattr(charts_object, "Environment")
+        environments = [ e["name"] for e in envs ]
+
+    default_values = getattr(charts_object, "DefaultMetadata")
+    env_configs = getattr(charts_object, "Environment")
+    if len(default_values) != 0:
+        env_configs = merge_default_and_env_values(default_values[0], env_configs)
+        setattr(charts_object, "Environment", env_configs)
+
+    build_and_check_configurations(charts_object)
+    env_configs = [ e for e in env_configs if e["name"] in environments ]
+
+    index_configs = getattr(charts_object, "AlgoliaIndex")
+
+    for env_config in env_configs:
+        update_extensions, update_collections = deploy_stacks(
+            env_config,
+            index_configs,
+            agp_secrets,
+            args.verb,
+            username,
+        )
+
+        update_config_files(
+            env_config,
+            index_configs,
+            update_extensions,
+            update_collections,
+            args.extensions_dir,
+            args.firebase_config,
+        )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "verb",
+        action="store",
+        default=None,
+        choices=["init", "preview", "rm", "rm-stack", "set", "up"],
+        help="Execute an operation to environment resources"
+    )
+    parser.add_argument(
+        "environment",
+        action="store",
+        default="all",
+        nargs="?",
+        help="Environments to deploy. Use ',' when deploying multiple environments. Deploys all environments by default.",
+    )
+    parser.add_argument(
+        "--chart-dir",
+        action="store",
+        default=CWD,
+        help="Specify the chart directory containing the AGP resources. Defaults to './'",
+    )
+    parser.add_argument(
+        "--agp-secrets",
+        action="store",
+        default=AGP_SECRETS,
+        help="Secrets file containing algolia admin keys." \
+            "You can set the value of environment variable AGP_SECRETS" \
+            f"Defaults to {AGP_SECRETS}",
+    )
+    parser.add_argument(
+        "--extensions-dir",
+        action="store",
+        default=EXTENSIONS_DIR,
+        help="Extensions env file directory. " \
+            "You can set the value of environment variable AGP_EXTENSIONS_DIR. " \
+            f"Defaults to {EXTENSIONS_DIR}",
+    )
+    parser.add_argument(
+        "--firebase-config",
+        action="store",
+        default=FIREBASE_CONFIG_FILE,
+        help="Path to 'firebase.json' config file. " \
+            "You can set the value of environment variable AGP_FIREBASE_CONFIG_FILE. " \
+            f"Defaults to {FIREBASE_CONFIG_FILE}",
+    )
+
+    args = parser.parse_args()
+    run(args)

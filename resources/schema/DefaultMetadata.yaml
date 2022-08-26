@@ -1,0 +1,70 @@
+kind: DefaultMetadata
+name:
+  type: string
+  required: false
+  autoCreate: true
+  default: DefaultMetadata
+spec:
+  type: object
+  required: false
+  autoCreate: false
+  object:
+    environment:
+      type: object
+      required: false
+      autoCreate: true
+      object:
+        updateExtensions:
+          type: boolean
+          required: false
+          autoCreate: true
+          default: true
+        updateCollections:
+          type: boolean
+          required: false
+          autoCreate: true
+          default: false
+    gcp:
+      type: object
+      required: true
+      object:
+        project:
+          type: string
+          required: true
+        region:
+          type: string
+          required: false
+          autoCreate: true
+          default: us-west2
+        forceDataSync:
+          type: boolean
+          required: false
+          autoCreate: true
+          default: false
+    pulumi:
+      type: object
+      required: true
+      object:
+        namespace:
+          type: string
+          required: false
+          autoCreate: true
+          default: ""
+        prefix:
+          type: string
+          required: false
+          autoCreate: true
+          default: ""
+        stack:
+          type: string
+          required: true
+    algolia:
+      type: object
+      required: true
+      object:
+        apiKeyName:
+          type: string
+          required: true
+        appId:
+          type: string
+          required: true
