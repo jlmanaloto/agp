@@ -41,6 +41,7 @@ You may add ``bin/agp`` to your ``$PATH``:
 
 3. Create a ``DefaultMetadata`` or ``Environment`` resource file and an ``AlgoliaIndex`` resource file:
 
+   ```
    # environment.yaml
    kind: Environment
    name: my-env
@@ -60,6 +61,7 @@ You may add ``bin/agp`` to your ``$PATH``:
      apiKey:
        description: Test API Key
        acls: ["search"]
+   ```
 
 4. Deploy resources:
 
