@@ -16,6 +16,12 @@ Make sure that you have a Pulumi account already setup before proceeding. Pulumi
 [Before You Begin](https://www.pulumi.com/docs/get-started/gcp/begin/) page for getting started with
 Pulumi and GCP.
 
+You may add ``bin/agp`` to your ``$PATH``:
+
+   ```bash
+   $ sudo cp bin/agp /usr/local/bin
+   ```
+
 1. **Initialize agp**:
 
    ```bash
