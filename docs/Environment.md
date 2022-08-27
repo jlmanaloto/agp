@@ -5,7 +5,7 @@ This resource specifies the default values to use for deployments for specific e
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| name | string | yes | Name of the resource. Defaults to ``DefaultMetadata`` |
+| name | string | yes | Name of the resource. Usually not set by the user. Defaults to ``DefaultMetadata`` |
 | spec | object (dict) | yes | Resource specification |
 | spec.environment | object | no | Specification for environment values |
 | spec.gcp | object | no | Contains specs for Google Cloud Platform |
@@ -44,8 +44,9 @@ This resource specifies the default values to use for deployments for specific e
 | apiKeyName | string | no | Name of the secret from GCP Secret Manager. Equivalent to ``projects/${param:PROJECT_NUMBER}/secrets/``{apiKeyName}``/versions/latest`` |
 | appId | string | no | Algolia application ID |
 
-Full ``Environment`` resource example:
+Full ``Environment`` resource configuration example:
 
+   ```
    kind: Environment
    name: my-env
    spec:
@@ -63,3 +64,4 @@ Full ``Environment`` resource example:
      algolia:
        apiKeyName: api-key-name
        appId: my-algolia-app-id
+   ```

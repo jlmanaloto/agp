@@ -445,32 +445,32 @@ def get_chart_files(chart_dir) -> list[dict]:
         chart_dir: Directoy containing chart files in YAML format. Defaults to the current directory.
 
     Returns:
-        charts_list: A list of charts containing its relative path.
+        charts_resource_list: A list of charts containing its relative path.
     """
-    charts_list = []
+    charts_resource_list = []
     for (root, dirs, file) in os.walk(chart_dir):
         for f in file:
             if f and ".yaml" in f:
                 template_file = os.path.join(root, f)
-                charts_list.append(template_file)
+                charts_resource_list.append(template_file)
 
-    return charts_list
+    return charts_resource_list
 
 
 class Charts(object):
     pass
 
 
-def set_chart_configurations(charts_object, charts_list) -> None:
+def set_chart_configurations(charts_object, charts_resource_list) -> None:
     """Sets the configuration values of each AGP resource kind
 
     Parameters:
         charts_object: An object of the class 'Chart'.
-        charts_list: A list of charts containing its relative path.
+        charts_resource_list: A list of charts containing its relative path.
     """
     for schema in AGP_SCHEMAS:
         tmp_val_list = []
-        for chart in charts_list:
+        for chart in charts_resource_list:
             chart_configs = get_config_from_file(chart, "yaml")
             for cfg in chart_configs["configs"]:
                 try:
@@ -559,6 +559,7 @@ def _create_cfg_from_values(cfg, schema):
                 _create_cfg_from_values(v, schema[k]["object"])
         else:
             logging.error(f" Invalid key: {k}")
+            exit(1)
 
 
 def _update_cfg_from_schema(cfg, schema):
@@ -646,8 +647,7 @@ def _deploy_indexes(
     stack_name = stack_name + "-indexes"
     algolia_indexes = [
         dict(name=idx["name"], attributes=idx["spec"]["searchableAttributes"])
-        for idx in index_configs if idx["environment"] == "default"
-        or idx["environment"] == env_name
+        for idx in index_configs
     ]
 
     def pulumi_program_indexes():
@@ -681,13 +681,9 @@ def _deploy_api_keys(
 ):
     """Deploy the api keys stack of a project."""
     stack_name = stack_name + "-api-keys"
-    configs = [
-        idx for idx in index_configs if idx["environment"] == "default"
-        or idx["environment"] == env_name
-    ]
 
     def pulumi_program_api_keys():
-        return create_or_update_algolia_api_keys(configs, project_name, stack_name)
+        return create_or_update_algolia_api_keys(index_configs, project_name, stack_name)
 
     stack = auto.create_or_select_stack(
         stack_name=stack_name,
@@ -887,10 +883,10 @@ def run(args):
 
     agp_secrets = args.agp_secrets
 
-    charts_list = get_chart_files(args.chart_dir)
+    charts_resource_list = get_chart_files(args.chart_dir)
 
     charts_object = Charts()
-    set_chart_configurations(charts_object, charts_list)
+    set_chart_configurations(charts_object, charts_resource_list)
 
     environments = get_environments_to_deploy(args.environment)
     if len(environments) == 0:
@@ -898,15 +894,31 @@ def run(args):
         environments = [ e["name"] for e in envs ]
 
     default_values = getattr(charts_object, "DefaultMetadata")
+    if len(default_values) > 1:
+        logging.error(" Resource: 'DefaultMetadata' must only have one instance per chart.")
+        exit(1)
+
     env_configs = getattr(charts_object, "Environment")
+    env_configs = [ e for e in env_configs if e["name"] in environments ]
+
+    index_configs = getattr(charts_object, "AlgoliaIndex")
+    index_configs = [
+        idx for idx in index_configs
+        if idx["environment"] == "default"
+        or idx["environment"] in environments
+    ]
+
+    if len(index_configs) < 1:
+        logging.error(" Resource: 'AlgoliaIndex' not found. "
+            "No resources to deploy for the current environment. Exiting.."
+        )
+        exit(1)
+
     if len(default_values) != 0:
         env_configs = merge_default_and_env_values(default_values[0], env_configs)
         setattr(charts_object, "Environment", env_configs)
 
     build_and_check_configurations(charts_object)
-    env_configs = [ e for e in env_configs if e["name"] in environments ]
-
-    index_configs = getattr(charts_object, "AlgoliaIndex")
 
     for env_config in env_configs:
         update_extensions, update_collections = deploy_stacks(

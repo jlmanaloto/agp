@@ -1,6 +1,8 @@
 # AlgoliaIndex
 
 This resource specifies the metadata and specifications of Algolia indexes and API Keys.
+At least 1 instance of this resource must exist in a chart otherwise, no resources will be
+deployed.
 
 Below shows the schema for ``AlgoliaIndex``.
 
@@ -47,8 +49,9 @@ Below shows the schema for ``AlgoliaIndex``.
 | referers | list | no | List of query parameters. Defaults to ``[]`` |
 | validity | integer | no | How long the API Key is valid. Defaults to ``0`` - does not expire |
 
-Full ``AlgoliaIndex`` resource example:
+Full ``AlgoliaIndex`` resource configuration example:
 
+   ```
    kind: AlgoliaIndex
    name: test-index
    collectionPrefix: search
@@ -73,3 +76,4 @@ Full ``AlgoliaIndex`` resource example:
        maxHitsPerQuery: 0
        referers: []
        validity: 0
+   ```

@@ -46,8 +46,9 @@ Below shows the schema for ``DefaultMetadata``.
 | apiKeyName | string | yes | Name of the secret from GCP Secret Manager. Equivalent to ``projects/${param:PROJECT_NUMBER}/secrets/``{apiKeyName}``/versions/latest`` |
 | appId | string | yes | Algolia application ID |
 
-Full ``DefaultMetadata`` resource example:
+Full ``DefaultMetadata`` resource configuration example:
 
+   ```
    kind: DefaultMetadata
    spec:
      environment:
@@ -64,3 +65,4 @@ Full ``DefaultMetadata`` resource example:
      algolia:
        apiKeyName: api-key-name
        appId: my-algolia-app-id
+   ```

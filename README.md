@@ -7,8 +7,9 @@ Algolia GCP Pulumi Stack
 ## Requirements
 
 - [Python](https://www.python.org/downloads) >= 3.9
-- [Pulumi](https://www.pulumi.com/docs/get-started/install) >= 3.38.0
+- [Pulumi](https://www.pulumi.com/docs/get-started/install) >= 3.38.0, < 4.0.0
 - [Pulumi - Algolia](https://pypi.org/project/sw-pulumi-algolia/) = 0.1.0
+- [PyYAML](https://pypi.org/project/PyYAML/) >= 5.4.1, < 5.5.0
 
 ## Getting Started
 
@@ -27,6 +28,8 @@ You may add ``bin/agp`` to your ``$PATH``:
    ```bash
    $ agp init
    ```
+
+   This will initialize AGP directory and schema resources.
 
 2. **Set agp configuration values**:
 
@@ -161,9 +164,9 @@ AGP has the following resources:
 
 | Resource | Description |
 |----------|-------------|
-| ``DefaultMetadata`` | this resource specifies the default values for deployment. Only one ``DefaultMetadata`` must exist per chart |
-| ``Environment`` | this resource specifies the values to use for deployment for specific environments |
-| ``AlgoliaIndex`` | this resource specifies the metadata and specifications of Algolia indexes and API Keys |
+| [DefaultMetadata](docs/DefaultMetadata.md) | this resource specifies the default values for deployment. Only one ``DefaultMetadata`` must exist per chart |
+| [Environment](docs/Environment.md) | this resource specifies the values to use for deployment for specific environments |
+| [AlgoliaIndex](docs/AlgoliaIndex.md) | this resource specifies the metadata and specifications of Algolia indexes and API Keys |
 
 
 ## Notes
