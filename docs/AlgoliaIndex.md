@@ -8,11 +8,11 @@ Below shows the schema for ``AlgoliaIndex``.
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| name | string | yes | ``AlgoliaIndex`` resource name |
-| collectionPrefix | string | no | Prefix to use when creating an extension env file. Defaults to ``search`` |
-| environment | string | no | The environment scope of the ``AlgoliaIndex`` resource. The resource will only be deployed to the specified environment. Defaults to ``default`` - deploy to all environments |
-| metadata | object | no | ``AlgoliaIndex`` metadata |
-| spec | object | yes | ``AlgoliaIndex`` specification |
+| **name** | string | yes | ``AlgoliaIndex`` resource name |
+| **collectionPrefix** | string | no | Prefix to use when creating an extension env file. Defaults to ``search`` |
+| **environment** | string | no | The environment scope of the ``AlgoliaIndex`` resource. The resource will only be deployed to the specified environment. Defaults to ``default`` - deploy to all environments |
+| **metadata** | object | no | ``AlgoliaIndex`` metadata |
+| **spec** | object | yes | ``AlgoliaIndex`` specification |
 
 ## Metadata
 

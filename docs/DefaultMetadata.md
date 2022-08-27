@@ -7,21 +7,22 @@ Below shows the schema for ``DefaultMetadata``.
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| name | string | no | Name of the resource. Defaults to ``DefaultMetadata`` |
-| spec | object (dict) | no | Resource specification |
-| spec.environment | object | no | Specification for environment values |
-| spec.gcp | object | yes | Contains specs for Google Cloud Platform |
-| spec.pulumi | object | yes | Contains specs for Pulumi resources |
-| spec.algolia | object | yes | Contains specs for Algolia resources |
+| **name** | string | no | Name of the resource. Defaults to ``DefaultMetadata`` |
+| **spec** | object | no | Resource specification |
 
 ## Spec
+
+| **environment** | object | no | Specification for environment values |
+| **gcp** | object | yes | Contains specs for Google Cloud Platform |
+| **pulumi** | object | yes | Contains specs for Pulumi resources |
+| **algolia** | object | yes | Contains specs for Algolia resources |
 
 ### Environment
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| spec.environment.updateExtensions | boolean | no | set to ``true`` to update extensions env files. Defaults to ``true`` |
-| spec.environment.updateCollections | boolean | no | set to ``true`` to update firebase config file extensions. Defaults to ``false`` |
+| updateExtensions | boolean | no | set to ``true`` to update extensions env files. Defaults to ``true`` |
+| updateCollections | boolean | no | set to ``true`` to update firebase config file extensions. Defaults to ``false`` |
 
 ### GCP
 
