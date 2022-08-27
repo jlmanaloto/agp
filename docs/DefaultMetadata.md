@@ -12,6 +12,8 @@ Below shows the schema for ``DefaultMetadata``.
 
 ## Spec
 
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
 | **environment** | object | no | Specification for environment values |
 | **gcp** | object | yes | Contains specs for Google Cloud Platform |
 | **pulumi** | object | yes | Contains specs for Pulumi resources |

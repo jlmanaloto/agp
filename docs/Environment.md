@@ -10,6 +10,8 @@ This resource specifies the default values to use for deployments for specific e
 
 ## Spec
 
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
 | **environment** | object | no | Specification for environment values |
 | **gcp** | object | no | Contains specs for Google Cloud Platform |
 | **pulumi** | object | no | Contains specs for Pulumi resources |
