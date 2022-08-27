@@ -2,6 +2,10 @@
 
 Algolia GCP Pulumi Stack
 
+AGP deploys [Algolia](https://www.algolia.com/) indexes and API Keys using 
+[Pulumi](https://www.pulumi.com/) and exports the key as a secret in 
+[GCP Secret Manager](https://cloud.google.com/secret-manager).
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ## Requirements
