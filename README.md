@@ -21,11 +21,7 @@ Make sure that you have a Pulumi account already setup before proceeding. Pulumi
 [Before You Begin](https://www.pulumi.com/docs/get-started/gcp/begin/) page for getting started with
 Pulumi and GCP.
 
-You may add ``bin/agp`` to your ``$PATH``:
-
-   ```bash
-   $ sudo cp bin/agp /usr/local/bin
-   ```
+You may add ``bin/agp`` to your ``$PATH`` before using AGP.
 
 1. **Initialize agp**:
 
@@ -141,7 +137,7 @@ For more options, run ``agp -h``.
 AGP configuration file is a secret file containing the Algolia admin API Key.
 Set the configuration value using ``agp set namespace-environment:key=value``.
 
-To set a configuration for environent ``my-env`` in ``dev`` namespace with key ``apiKey`` and value ``my-api-key``:
+To set a configuration for environment ``my-env`` in ``dev`` namespace with key ``apiKey`` and value ``my-api-key``:
 
     $ agp set dev-my-env:apiKey=my-api-key
 
@@ -156,6 +152,29 @@ The command above yields to a configuration of:
 | Key | Description |
 |-----|-------------|
 | apiKey | Algolia admin API Key |
+
+Note that the ``environment`` and ``namespace`` must match the values in your ``Environment`` resource (or using ``DefaultMetadata`` for setting ``namespace``). 
+For example:
+
+   ```
+   # set both namespace and environment using Environment resource
+
+   # environment.yaml
+   kind: Environment
+   name: my-env
+   spec:
+     pulumi:
+       namespace: dev
+
+
+   # or using DefaultMetadata; this sets the namespace of all environments
+
+   # default.yaml
+   kind: DefaultMetadata
+   spec:
+     pulumi:
+       namespace: dev
+   ```
 
 ## Directory Structure
 
