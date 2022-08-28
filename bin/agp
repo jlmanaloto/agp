@@ -16,7 +16,6 @@ from sw_pulumi_algolia import ApiKey, Index
 from pulumi_gcp import secretmanager as sm
 
 
-SCRIPT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__)))
 CWD = os.getcwd()
 HOME_DIR = str(Path.home())
 AGP_DIR = os.path.join(HOME_DIR, ".agp")
@@ -395,7 +394,7 @@ def init_agp() -> None:
             data = json.dumps(empty_data, indent=2)
             write_to_file(AGP_SECRETS, data)
 
-        schema_dir = os.path.join(SCRIPT_DIR, "resources", "schema")
+        schema_dir = os.path.join(CWD, "resources", "schema")
         dest = os.path.join(AGP_DIR, "schema")
         shutil.move(schema_dir, dest)
 
