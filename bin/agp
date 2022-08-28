@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -12,6 +13,7 @@ import yaml
 
 import pulumi
 from pulumi import automation as auto
+from pulumi.automation.errors import CommandError
 from sw_pulumi_algolia import ApiKey, Index
 from pulumi_gcp import secretmanager as sm
 
@@ -664,8 +666,19 @@ def _deploy_indexes(
 
     stack.set_config("algolia:apiKey", auto.ConfigValue(value=admin_api_key, secret=True))
     stack.set_config("algolia:applicationId", auto.ConfigValue(value=app_id))
-    resp = execute_pulumi_verb(stack, verb, stack_name)
-    
+
+    resp = {}
+    try:
+        resp = execute_pulumi_verb(stack, verb, stack_name)
+    except CommandError as exc:
+        e = str(exc)
+        e = e.split('\n\n')
+        for error_strings in e:
+            pattern = "error occurred:"
+            match = re.search(pattern, error_strings)
+            if match:
+                logging.warning(f" Command Error during index deployment:\n{match.string}\n")
+
     return resp
 
 
@@ -692,7 +705,18 @@ def _deploy_api_keys(
 
     stack.set_config("algolia:apiKey", auto.ConfigValue(value=admin_api_key, secret=True))
     stack.set_config("algolia:applicationId", auto.ConfigValue(value=app_id))
-    resp = execute_pulumi_verb(stack, verb, stack_name)
+
+    resp = {}
+    try:
+        resp = execute_pulumi_verb(stack, verb, stack_name)
+    except CommandError as exc:
+        e = str(exc)
+        e = e.split('\n\n')
+        for error_strings in e:
+            pattern = "error occurred:"
+            match = re.search(pattern, error_strings)
+            if match:
+                logging.warning(f" Command Error during API keys deployment:\n{match.string}\n")
 
     return resp
 
@@ -719,7 +743,18 @@ def _deploy_secrets(
     )
 
     stack.set_config("gcp:project", auto.ConfigValue(value=gcp_project))
-    resp = execute_pulumi_verb(stack, verb, stack_name)
+
+    resp = {}
+    try:
+        resp = execute_pulumi_verb(stack, verb, stack_name)
+    except CommandError as exc:
+        e = str(exc)
+        e = e.split('\n\n')
+        for error_strings in e:
+            pattern = "error occurred:"
+            match = re.search(pattern, error_strings)
+            if match:
+                logging.warning(f" Command Error during secrets deployment:\n{match.string}\n")
 
     return resp
 
